@@ -227,7 +227,6 @@ abstract class Column extends FilterableColumn
 
 		return $this;
 	}
-
 	/**
 	 * Column can have variables that will be passed to custom template scope
 	 */

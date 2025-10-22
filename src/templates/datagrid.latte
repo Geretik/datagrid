@@ -109,7 +109,7 @@
 									{/if}
 
 									<div class="btn-group">
-										<button type="button" class="btn btn-xs {$btnSecondaryClass} dropdown-toggle" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" n:if="$control->canHideColumns()">
+										<button type="button" class="btn btn-xs {$btnSecondaryClass}" data-bs-toggle="modal" data-bs-target="#dg-columns-modal-{$control->getFullName()}" n:if="$control->canHideColumns()">
 											<i n:block="icon-gear" class="{$iconPrefix}cog"></i>
 										</button>
 										<ul class="dropdown-menu dropdown-menu-right dropdown-menu--grid">
@@ -413,6 +413,60 @@
 	</div>
 </div>
 
+<div class="modal fade" id="dg-columns-modal-{$control->getFullName()}" tabindex="-1" aria-hidden="true">
+	<div class="modal-dialog modal-dialog-scrollable">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h5 class="modal-title">{='contributte_datagrid.columns'|translate}</h5>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+			</div>
+
+			<div class="modal-body">
+				<div class="d-flex justify-content-between align-items-center mb-2">
+					<div class="btn-group">
+						<a n:href="showAllColumns!" class="ajax btn btn-sm btn-outline-secondary" id="dg-columns-all-{$control->getFullName()}">
+							{='contributte_datagrid.show_all_columns'|translate}
+						</a>
+						<a n:href="showDefaultColumns!" class="ajax btn btn-sm btn-outline-secondary" id="dg-columns-default-{$control->getFullName()}" n:if="$control->hasSomeColumnDefaultHide()">
+							{='contributte_datagrid.show_default_columns'|translate}
+						</a>
+					</div>
+					<button type="button" class="btn btn-sm btn-outline-secondary" id="dg-columns-toggle-{$control->getFullName()}">
+						{='contributte_datagrid.toggle_selection'|translate}
+					</button>
+				</div>
+
+				<ul class="list-group" id="dg-columns-list-{$control->getFullName()}">
+					<li class="list-group-item d-flex align-items-center"
+							n:foreach="$columnsVisibility as $v_key => $visibility">
+						<input class="form-check-input me-2 dg-col-checkbox"
+							   type="checkbox"
+							   id="dg-col-{$control->getFullName()}-{$v_key}"
+							   data-col-key="{$v_key}"
+							   {if $visibility['visible']}checked{/if}>
+						<label class="form-check-label" for="dg-col-{$control->getFullName()}-{$v_key}">
+							{include #column-header, column => $visibility['column']}
+						</label>
+					</li>
+				</ul>
+			</div>
+
+			<div class="modal-footer">
+				<button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">
+					{='contributte_datagrid.cancel'|translate}
+				</button>
+				<button type="button" class="btn btn-sm btn-primary"
+						id="dg-columns-apply-{$control->getFullName()}"
+						data-apply-url-show="{link showColumn!}"
+						data-apply-url-hide="{link hideColumn!}">
+					{='contributte_datagrid.apply'|translate}
+				</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+
 
 {define inlineAddRow}
 	{if $inlineAdd->shouldBeRendered()}
@@ -534,3 +588,78 @@
 		{/ifset}
 	{/if}
 {/define}
+
+<script n:syntax="off">
+	document.addEventListener('DOMContentLoaded', function () {
+		function runAjax(url, data = {}) {
+			return new Promise(function (resolve, reject) {
+				if (window.$ && $.nette) {
+					$.nette.ajax({ url: url, data: data, off: ['history'] })
+							.done(resolve).fail(reject);
+				} else {
+					const u = new URL(url, window.location.href);
+					Object.entries(data).forEach(([k,v]) => u.searchParams.set(k, v));
+					window.location.href = u.toString();
+					resolve();
+				}
+			});
+		}
+
+		const gridName = {$control->getFullName()|escapeJs};
+		const modalEl = document.getElementById('dg-columns-modal-' + gridName);
+		if (!modalEl) return;
+
+		const list = document.getElementById('dg-columns-list-' + gridName);
+		const btnApply = document.getElementById('dg-columns-apply-' + gridName);
+		const btnToggle = document.getElementById('dg-columns-toggle-' + gridName);
+		const btnAll = document.getElementById('dg-columns-all-' + gridName);
+		const btnDefault = document.getElementById('dg-columns-default-' + gridName);
+
+		// Ulož původní stav při otevření
+		modalEl.addEventListener('show.bs.modal', () => {
+			list.querySelectorAll('.dg-col-checkbox').forEach(ch => {
+				ch.setAttribute('data-orig', ch.checked ? '1' : '0');
+			});
+		});
+
+		// Invert všech checkboxů
+		btnToggle?.addEventListener('click', () => {
+			list.querySelectorAll('.dg-col-checkbox').forEach(ch => ch.checked = !ch.checked);
+		});
+
+		// Po "Zobrazit vše"/"Default" modal krátce po AJAXu zavři
+		[btnAll, btnDefault].forEach(b => {
+			if (!b) return;
+			b.addEventListener('click', () => {
+				const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
+				setTimeout(() => bsModal.hide(), 250);
+			});
+		});
+
+		// Apply: pošli jen změněné sloupce
+		btnApply?.addEventListener('click', async () => {
+			const urlShow = btnApply.getAttribute('data-apply-url-show');
+			const urlHide = btnApply.getAttribute('data-apply-url-hide');
+
+			const ops = [];
+			list.querySelectorAll('.dg-col-checkbox').forEach(ch => {
+				const key = ch.getAttribute('data-col-key');
+				const visible = ch.checked;
+				const orig = ch.getAttribute('data-orig') === '1';
+				if (visible !== orig) ops.push({ key, show: visible });
+			});
+
+			if (!ops.length) {
+				bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+				return;
+			}
+
+			for (const op of ops) {
+				await runAjax(op.show ? urlShow : urlHide, { column: op.key });
+			}
+
+			bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+		});
+	});
+</script>
+
