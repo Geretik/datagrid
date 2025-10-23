@@ -413,6 +413,9 @@
 	</div>
 </div>
 
+{* BASE URL pro aktuální stránku/presenter (bez signálu) *}
+{var $baseUrl = plink this}
+
 <div class="modal fade" id="dg-columns-modal-{$control->getFullName()}" tabindex="-1" aria-hidden="true">
 	<div class="modal-dialog modal-dialog-scrollable">
 		<div class="modal-content">
@@ -424,10 +427,13 @@
 			<div class="modal-body">
 				<div class="d-flex justify-content-between align-items-center mb-2">
 					<div class="btn-group">
-						<a n:href="showAllColumns!" class="ajax btn btn-sm btn-outline-secondary" id="dg-columns-all-{$control->getFullName()}">
+						<a class="btn btn-sm btn-outline-secondary ajax"
+						   href="{$baseUrl}&do={$control->getFullName()|url}-showAllColumns">
 							{='contributte_datagrid.show_all_columns'|translate}
 						</a>
-						<a n:href="showDefaultColumns!" class="ajax btn btn-sm btn-outline-secondary" id="dg-columns-default-{$control->getFullName()}" n:if="$control->hasSomeColumnDefaultHide()">
+						<a n:if="$control->hasSomeColumnDefaultHide()"
+								class="btn btn-sm btn-outline-secondary ajax"
+								href="{$baseUrl}&do={$control->getFullName()|url}-showDefaultColumns">
 							{='contributte_datagrid.show_default_columns'|translate}
 						</a>
 					</div>
@@ -455,17 +461,22 @@
 				<button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">
 					{='contributte_datagrid.cancel'|translate}
 				</button>
+
+				{*
+				  Do šablony uložíme jen „základ“ pro oba signály bez parametru.
+				  Parametr column doplníme až v JS.
+				*}
 				<button type="button" class="btn btn-sm btn-primary"
 						id="dg-columns-apply-{$control->getFullName()}"
-						data-apply-url-show="{link showColumn!}"
-						data-apply-url-hide="{link hideColumn!}">
+						data-base-url="{$baseUrl}"
+						data-signal-show="{$control->getFullName()}-showColumn"
+						data-signal-hide="{$control->getFullName()}-hideColumn">
 					{='contributte_datagrid.apply'|translate}
 				</button>
 			</div>
 		</div>
 	</div>
 </div>
-
 
 
 {define inlineAddRow}
@@ -594,8 +605,7 @@
 		function runAjax(url, data = {}) {
 			return new Promise(function (resolve, reject) {
 				if (window.$ && $.nette) {
-					$.nette.ajax({ url: url, data: data, off: ['history'] })
-							.done(resolve).fail(reject);
+					$.nette.ajax({ url: url, data: data, off: ['history'] }).done(resolve).fail(reject);
 				} else {
 					const u = new URL(url, window.location.href);
 					Object.entries(data).forEach(([k,v]) => u.searchParams.set(k, v));
@@ -605,48 +615,38 @@
 			});
 		}
 
-		const gridName = {$control->getFullName()|escapeJs};
-		const modalEl = document.getElementById('dg-columns-modal-' + gridName);
+		const gridName   = {$control->getFullName()|escapeJs};
+		const modalEl    = document.getElementById('dg-columns-modal-' + gridName);
 		if (!modalEl) return;
 
-		const list = document.getElementById('dg-columns-list-' + gridName);
-		const btnApply = document.getElementById('dg-columns-apply-' + gridName);
-		const btnToggle = document.getElementById('dg-columns-toggle-' + gridName);
-		const btnAll = document.getElementById('dg-columns-all-' + gridName);
-		const btnDefault = document.getElementById('dg-columns-default-' + gridName);
+		const list       = document.getElementById('dg-columns-list-' + gridName);
+		const btnApply   = document.getElementById('dg-columns-apply-' + gridName);
+		const btnToggle  = document.getElementById('dg-columns-toggle-' + gridName);
 
-		// Ulož původní stav při otevření
+		// uložit původní stav při otevření
 		modalEl.addEventListener('show.bs.modal', () => {
 			list.querySelectorAll('.dg-col-checkbox').forEach(ch => {
 				ch.setAttribute('data-orig', ch.checked ? '1' : '0');
 			});
 		});
 
-		// Invert všech checkboxů
+		// invert výběru
 		btnToggle?.addEventListener('click', () => {
 			list.querySelectorAll('.dg-col-checkbox').forEach(ch => ch.checked = !ch.checked);
 		});
 
-		// Po "Zobrazit vše"/"Default" modal krátce po AJAXu zavři
-		[btnAll, btnDefault].forEach(b => {
-			if (!b) return;
-			b.addEventListener('click', () => {
-				const bsModal = bootstrap.Modal.getOrCreateInstance(modalEl);
-				setTimeout(() => bsModal.hide(), 250);
-			});
-		});
-
-		// Apply: pošli jen změněné sloupce
+		// apply – pošli jen změny
 		btnApply?.addEventListener('click', async () => {
-			const urlShow = btnApply.getAttribute('data-apply-url-show');
-			const urlHide = btnApply.getAttribute('data-apply-url-hide');
+			const base   = btnApply.dataset.baseUrl;          // např. ?presenter=Foo
+			const sigShow = btnApply.dataset.signalShow;      // <fullName>-showColumn
+			const sigHide = btnApply.dataset.signalHide;      // <fullName>-hideColumn
 
 			const ops = [];
 			list.querySelectorAll('.dg-col-checkbox').forEach(ch => {
-				const key = ch.getAttribute('data-col-key');
-				const visible = ch.checked;
+				const key  = ch.getAttribute('data-col-key');
+				const now  = ch.checked;
 				const orig = ch.getAttribute('data-orig') === '1';
-				if (visible !== orig) ops.push({ key, show: visible });
+				if (now !== orig) ops.push({ key, show: now });
 			});
 
 			if (!ops.length) {
@@ -655,7 +655,11 @@
 			}
 
 			for (const op of ops) {
-				await runAjax(op.show ? urlShow : urlHide, { column: op.key });
+				// sestavíme čistě bootstrap/JS cestou: base &do=signal &column=key
+				const url = new URL(base, window.location.href);
+				url.searchParams.set('do', op.show ? sigShow : sigHide);
+				url.searchParams.set('column', op.key);
+				await runAjax(url.toString());
 			}
 
 			bootstrap.Modal.getOrCreateInstance(modalEl).hide();
