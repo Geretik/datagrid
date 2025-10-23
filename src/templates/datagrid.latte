@@ -414,7 +414,7 @@
 </div>
 
 {* BASE URL pro aktuální stránku/presenter (bez signálu) *}
-{var $baseUrl = plink this}
+{var $baseUrl = $presenter->link('this')}
 
 <div class="modal fade" id="dg-columns-modal-{$control->getFullName()}" tabindex="-1" aria-hidden="true">
 	<div class="modal-dialog modal-dialog-scrollable">
