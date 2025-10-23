@@ -428,12 +428,12 @@
 				<div class="d-flex justify-content-between align-items-center mb-2">
 					<div class="btn-group">
 						<a class="btn btn-sm btn-outline-secondary ajax"
-						   href="{$baseUrl}&do={$control->getFullName()|url}-showAllColumns">
+						   href="{$baseUrl}&do={$control->getFullName()|escapeUrl}-showAllColumns">
 							{='contributte_datagrid.show_all_columns'|translate}
 						</a>
 						<a n:if="$control->hasSomeColumnDefaultHide()"
 								class="btn btn-sm btn-outline-secondary ajax"
-								href="{$baseUrl}&do={$control->getFullName()|url}-showDefaultColumns">
+								href="{$baseUrl}&do={$control->getFullName()|escapeUrl}-showDefaultColumns">
 							{='contributte_datagrid.show_default_columns'|translate}
 						</a>
 					</div>
