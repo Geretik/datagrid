@@ -600,7 +600,7 @@
 	{/if}
 {/define}
 
-<script n:syntax="off">
+<script n:syntax="double">
 	document.addEventListener('DOMContentLoaded', function () {
 		function runAjax(url, data = {}) {
 			return new Promise(function (resolve, reject) {
@@ -615,7 +615,7 @@
 			});
 		}
 
-		const gridName   = {$control->getFullName()|escapeJs};
+		const gridName   = {{$control->getFullName()}};
 		const modalEl    = document.getElementById('dg-columns-modal-' + gridName);
 		if (!modalEl) return;
 
