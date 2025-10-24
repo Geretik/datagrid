@@ -55,7 +55,9 @@
   },
   "autoload": {
     "psr-4": {
-      "Contributte\\Datagrid\\": "src/"
+      "Contributte\\Datagrid\\": "src/",
+      "Contributte\\Datagrid\\Bridge\\Nette\\": "src/Bridge/Nette/",
+      "Contributte\\Datagrid\\DI\\": "src/DI/"
     }
   },
   "autoload-dev": {

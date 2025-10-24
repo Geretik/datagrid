@@ -369,7 +369,7 @@ class Datagrid extends Control
 			$col->setHidden(!$isVisible);
 		}
 	}
-
+/*
 	public function handleSaveColumnsVisibility(): void
 	{
 		$presenter = $this->getPresenterInstance();
@@ -412,9 +412,68 @@ class Datagrid extends Control
 		// volitelně Nette flash + jeho snippet (ať se propsáhne do response)
 		$presenter->flashMessage('Zobrazení sloupců bylo uloženo.', 'success');
 		$presenter->redrawControl('flashes'); // pokud máš snippet pro flash messages
+	}*/
+
+	// v class Datagrid extends Control { ... }
+
+	/** @var array<callable(self $grid, string $gridId, array $columns): void> */
+	public array $onSaveColumnsVisibility = [];
+
+	/** @var array<callable(self $grid, string $gridId, array $columns): void> */
+	public array $onSaveColumnsDefault = [];
+
+	public function handleSaveColumnsVisibility(string $gridId): void
+	{
+		$p = $this->getPresenter(); // Nette\Application\UI\Presenter
+		$req = $p->getHttpRequest();
+
+		// bezpečně vytáhnout POST data
+		$post = $req->getPost();
+		$columns = isset($post['columns']) && is_array($post['columns']) ? $post['columns'] : [];
+
+		// Volitelný hook pro perzistenci – uživatel si může připojit listener zvenku
+		foreach ($this->onSaveColumnsVisibility as $cb) {
+			$cb($this, $gridId, $columns);
+		}
+
+		// Sestav Naja payload
+		$p->payload->status = 'ok';
+		$p->payload->closeModal = '#datagridColumnsModal-' . $gridId;
+		// minimálně hlavní snippet gridu – použij ID, které modul stejně renderuje
+		$p->payload->redraw = ['#snippet--' . $this->getFullName()];
+		$p->payload->flash = [
+			['type' => 'success', 'message' => $this->getTranslator()->translate('contributte_datagrid.columns_saved')],
+		];
+
+		// nech ať si presenter invaliduje grid snippet
+		$this->redrawControl(); // pokud máš pojmenovaný snippet: $this->redrawControl('grid');
+
+		$p->sendPayload();
 	}
 
+	public function handleSaveColumnsAsDefault(string $gridId): void
+	{
+		$p = $this->getPresenter();
+		$req = $p->getHttpRequest();
+		$post = $req->getPost();
+		$columns = isset($post['columns']) && is_array($post['columns']) ? $post['columns'] : [];
 
+		foreach ($this->onSaveColumnsDefault as $cb) {
+			$cb($this, $gridId, $columns);
+		}
+
+		$p->payload->status = 'ok';
+		$p->payload->closeModal = '#datagridColumnsModal-' . $gridId;
+		$p->payload->redraw = ['#snippet--' . $this->getFullName()];
+		$p->payload->flash = [
+			['type' => 'success', 'message' => $this->getTranslator()->translate('contributte_datagrid.columns_default_saved')],
+		];
+
+		$this->redrawControl(); // nebo pojmenovaný snippet
+		$p->sendPayload();
+	}
+
+/*
 	public function handleSaveColumnsAsDefault(): void
 	{
 		$presenter = $this->getPresenterInstance();
@@ -468,6 +527,7 @@ class Datagrid extends Control
 		];
 		$presenter->sendResponse(new JsonResponse($payload));
 	}
+*/
 
 	/** FE si může explicitně vyžádat redraw konkrétních snippetů */
 	public function handleRedrawSnippets(?array $ids = []): void

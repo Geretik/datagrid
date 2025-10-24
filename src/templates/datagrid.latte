@@ -509,14 +509,14 @@
 					<button type="submit"
 							class="btn btn-sm btn-primary"
 							id="dg-columns-apply-{$control->getFullName()}"
-							formaction="{link saveColumnsVisibility!, gridId: $control->getFullName()}">
+							formaction="{link saveColumnsVisibility!, gridId: $control->getFullName()}"">
 						{='contributte_datagrid.apply'|translate}
 					</button>
 
 					<button type="submit"
 							class="btn btn-sm btn-outline-primary"
 							id="dg-columns-default-{$control->getFullName()}"
-							formaction="{plink saveColumnsAsDefault!, gridId: $control->getFullName()}">
+							formaction="{link saveColumnsAsDefault!, gridId: $control->getFullName()}">
 						{='contributte_datagrid.set_as_default'|translate}
 					</button>
 				</div>
@@ -742,6 +742,36 @@
 		naja.addEventListener('complete', e => {
 			const form = e.detail.options?.form;
 			if (form && form.closest(modalSel)) setSubmitting(form, false);
+		});
+	})();
+
+	(function () {
+		if (!window.naja) return;
+
+		naja.addEventListener('success', async (e) => {
+			const payload = e.detail.payload;
+			if (!payload) return;
+
+			if (payload.status === 'ok') {
+				if (payload.closeModal) {
+					const modal = bootstrap?.Modal?.getOrCreateInstance?.(document.querySelector(payload.closeModal));
+					modal && modal.hide();
+				}
+
+				if (Array.isArray(payload.redraw) && payload.redraw.length) {
+					// vezmeme první cílový element a najdeme mu redraw endpoint
+					const target = document.querySelector(payload.redraw[0]);
+					const endpoint = target?.dataset?.redrawEndpoint || window.location.href;
+					try {
+						await naja.makeRequest('GET', endpoint, { data: { ids: payload.redraw } });
+					} catch {}
+				}
+
+				(payload.flash || []).forEach(f => {
+					// pokud nemáš vlastní flash handler, klidně console.log
+					console.log(f.type + ': ' + f.message);
+				});
+			}
 		});
 	})();
 </script>
