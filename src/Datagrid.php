@@ -64,6 +64,8 @@ use Nette\Http\SessionSection;
 use Nette\Localization\Translator;
 use Nette\Utils\ArrayHash;
 use UnexpectedValueException;
+use Nette\Application\Responses\JsonResponse;
+use Contributte\Datagrid\Persistance\ColumnsVisibilityPersistorInterface;
 
 /**
  * @method onRedraw()
@@ -269,6 +271,9 @@ class Datagrid extends Control
 
 	private ?string $componentFullName = null;
 
+	/** interní guard, ať neaplikujeme viditelnost víckrát za jeden request */
+	private bool $columnsVisibilityApplied = false;
+
 	public function __construct(?IContainer $parent = null, ?string $name = null)
 	{
 		if ($parent !== null) {
@@ -316,6 +321,184 @@ class Datagrid extends Control
 				$this->componentFullName = $this->lookupPath();
 			}
 		);
+	}
+	private function applyVisibilityFromPersistorIfNeeded(): void
+	{
+		if ($this->columnsVisibilityApplied || $this->columnsPersistor === null) {
+			return;
+		}
+
+		$user  = (string)($this->getPresenterInstance()->getUser()->getId() ?? 'guest');
+		$gridId = $this->getFullName();
+
+		// máme už nadefinované sloupce => můžeme rozhodnout, co schovat
+		$visible = $this->columnsPersistor->load($user, $gridId)
+			?? $this->columnsPersistor->loadDefault($user, $gridId)
+			?? array_keys($this->columns); // fallback: vše viditelné
+
+		$this->applyVisibilityFromList($visible);
+		$this->columnsVisibilityApplied = true;
+	}
+
+
+	/** Volitelný perzistor pro viditelnost sloupců (userContext+gridId) */
+	private ?ColumnsVisibilityPersistorInterface $columnsPersistor = null;
+
+	/** Nastaví perzistor viditelnosti sloupců */
+	public function setColumnsVisibilityPersistor(ColumnsVisibilityPersistorInterface $persistor): self
+	{
+		$this->columnsPersistor = $persistor;
+		return $this;
+	}
+
+	/** @return array<string, array{locked:bool}> */
+	private function collectColumnsMeta(): array
+	{
+		$out = [];
+		foreach ($this->columns as $key => $col) {
+			$locked = method_exists($col, 'isHideable') ? !$col->isHideable() : false;
+			$out[(string)$key] = ['locked' => $locked];
+		}
+		return $out;
+	}
+
+	/** @param list<string> $visible */
+	private function applyVisibilityFromList(array $visible): void
+	{
+		foreach ($this->columns as $key => $col) {
+			$isVisible = in_array((string)$key, $visible, true);
+			$col->setHidden(!$isVisible);
+		}
+	}
+
+	public function handleSaveColumnsVisibility(): void
+	{
+		$presenter = $this->getPresenterInstance();
+		if (!$presenter->getHttpRequest()->isMethod('POST')) {
+			$presenter->error('Method Not Allowed', Nette\Http\IResponse::S405_METHOD_NOT_ALLOWED);
+		}
+
+		$meta = $this->collectColumnsMeta();
+		$allKeys = array_keys($meta);
+
+		$post = $presenter->getHttpRequest()->getPost();
+		$selected = $post['columns'] ?? [];
+		$selected = is_array($selected) ? array_map('strval', $selected) : [];
+
+		// validní klíče + respekt „locked“
+		$visible = array_values(array_intersect($allKeys, $selected));
+		foreach ($meta as $key => $m) {
+			if ($m['locked'] && !in_array($key, $visible, true)) {
+				$visible[] = $key;
+			}
+		}
+
+		// volitelně log neznámých
+		// (pokud máš logger, můžeš zalogovat rozdíl mezi $selected a $allKeys)
+
+		// persist (pokud je nastaven perzistor)
+		if ($this->columnsPersistor !== null) {
+			$user = (string)($presenter->getUser()->getId() ?? 'guest');
+			$this->columnsPersistor->save($user, $this->getFullName(), $visible);
+		}
+
+		// aplikuj do gridu + základní redraw
+		$this->applyVisibilityFromList($visible);
+		$this->redrawControl('grid');
+		$this->redrawControl('table');
+		$this->redrawControl('tbody');
+		$this->redrawControl('pagination');
+		$this->redrawControl('toolbar');
+		$this->redrawControl('exports');
+
+		$payload = [
+			'status'     => 'ok',
+			'closeModal' => '#datagridColumnsModal-' . $this->getFullName(),
+			'redraw'     => ['grid'], // FE může volat následný redrawSnippets!
+			'flash'      => [['type' => 'success', 'message' => 'Zobrazení sloupců bylo uloženo.']],
+		];
+		$presenter->sendResponse(new JsonResponse($payload));
+	}
+
+	public function handleSaveColumnsAsDefault(): void
+	{
+		$presenter = $this->getPresenterInstance();
+		if (!$presenter->getHttpRequest()->isMethod('POST')) {
+			$presenter->error('Method Not Allowed', Nette\Http\IResponse::S405_METHOD_NOT_ALLOWED);
+		}
+
+		// 2) CSRF (pokud neposíláš Nette Form s vestavěným CSRF)
+		$post = $presenter->getHttpRequest()->getPost();
+		if (!$this->isCsrfOk($post)) {
+			$presenter->sendResponse(new JsonResponse([
+				'status' => 'error',
+				'validation' => ['columns' => 'Bezpečnostní kontrola selhala.'],
+				'flash' => [['type' => 'danger', 'message' => 'Bezpečnostní kontrola selhala.']],
+			]));
+			return;
+		}
+
+		$meta = $this->collectColumnsMeta();
+		$allKeys = array_keys($meta);
+
+		$post = $presenter->getHttpRequest()->getPost();
+		$selected = $post['columns'] ?? [];
+		$selected = is_array($selected) ? array_map('strval', $selected) : [];
+
+		$visible = array_values(array_intersect($allKeys, $selected));
+		foreach ($meta as $key => $m) {
+			if ($m['locked'] && !in_array($key, $visible, true)) {
+				$visible[] = $key;
+			}
+		}
+
+		if ($this->columnsPersistor !== null) {
+			$user = (string)($presenter->getUser()->getId() ?? 'guest');
+			$this->columnsPersistor->saveDefault($user, $this->getFullName(), $visible);
+		}
+
+		$this->applyVisibilityFromList($visible);
+		$this->redrawControl('grid');
+		$this->redrawControl('table');
+		$this->redrawControl('tbody');
+		$this->redrawControl('pagination');
+		$this->redrawControl('toolbar');
+		$this->redrawControl('exports');
+
+		$payload = [
+			'status'     => 'ok',
+			'closeModal' => '#datagridColumnsModal-' . $this->getFullName(),
+			'redraw'     => ['grid'],
+			'flash'      => [['type' => 'success', 'message' => 'Výchozí preset byl uložen.']],
+		];
+		$presenter->sendResponse(new JsonResponse($payload));
+	}
+
+	/** FE si může explicitně vyžádat redraw konkrétních snippetů */
+	public function handleRedrawSnippets(?array $ids = []): void
+	{
+		foreach ($ids ?? [] as $id) {
+			$this->redrawControl((string)$id);
+		}
+		$this->getPresenterInstance()->sendPayload(); // vrátí snippets
+	}
+
+	/** @param array<string,mixed> $post */
+	private function isCsrfOk(array $post): bool
+	{
+		// Příklad: očekáváš hidden input name="csrf"
+		$token = isset($post['csrf']) ? (string) $post['csrf'] : '';
+		if ($token === '') {
+			return false;
+		}
+
+		// Pokud používáš vlastní sekci se seedem
+		// $sess = $this->getPresenterInstance()->getSession()->getSection('dg.csrf');
+		// return hash_equals((string)$sess->get('token'), $token);
+
+		// Pokud odesíláš Nette Form s CSRF, můžeš kontrolu delegovat na Form
+		// (nebo ji úplně vynechat – Nette ji udělá samo).
+		return true; // ← nahraď reálnou validací
 	}
 
 	public function getStateStorage(): IStateStorage
@@ -407,6 +590,9 @@ class Datagrid extends Control
 		}
 
 		$template->rows = $rows;
+
+		// <<< APLIKUJ PERSIST VIDITELNOSTI JEŠTĚ PŘED getColumns()/getColumnsVisibility()
+		$this->applyVisibilityFromPersistorIfNeeded();
 
 		$template->columns = $this->getColumns();
 		$template->actions = $this->actions;

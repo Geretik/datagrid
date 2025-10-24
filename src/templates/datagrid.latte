@@ -416,67 +416,83 @@
 {* BASE URL pro aktuální stránku/presenter (bez signálu) *}
 {var $baseUrl = $presenter->link('this')}
 
-<div class="modal fade" id="dg-columns-modal-{$control->getFullName()}" tabindex="-1" aria-hidden="true">
+{* sjednocený ID kvůli payloadu closeModal *}
+<div class="modal fade"
+	 id="datagridColumnsModal-{$control->getFullName()}"
+	 tabindex="-1"
+	 aria-hidden="true"
+	 data-redraw-endpoint="{plink redrawSnippets!}">
 	<div class="modal-dialog modal-dialog-scrollable">
 		<div class="modal-content">
-			<div class="modal-header">
-				<h5 class="modal-title">{='contributte_datagrid.columns'|translate}</h5>
-				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-			</div>
-
-			<div class="modal-body">
-				<div class="d-flex justify-content-between align-items-center mb-2">
-					<div class="btn-group">
-						<a class="btn btn-sm btn-outline-secondary ajax"
-						   href="{$baseUrl}&do={$control->getFullName()|escapeUrl}-showAllColumns">
-							{='contributte_datagrid.show_all_columns'|translate}
-						</a>
-						<a n:if="$control->hasSomeColumnDefaultHide()"
-								class="btn btn-sm btn-outline-secondary ajax"
-								href="{$baseUrl}&do={$control->getFullName()|escapeUrl}-showDefaultColumns">
-							{='contributte_datagrid.show_default_columns'|translate}
-						</a>
-					</div>
-					<button type="button" class="btn btn-sm btn-outline-secondary" id="dg-columns-toggle-{$control->getFullName()}">
-						{='contributte_datagrid.toggle_selection'|translate}
-					</button>
+			<form method="post" data-naja="true" novalidate>
+				<div class="modal-header">
+					<h5 class="modal-title">{='contributte_datagrid.columns'|translate}</h5>
+					<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
 				</div>
 
-				<ul class="list-group" id="dg-columns-list-{$control->getFullName()}">
-					<li class="list-group-item d-flex align-items-center"
-							n:foreach="$columnsVisibility as $v_key => $visibility">
-						<input class="form-check-input me-2 dg-col-checkbox"
-							   type="checkbox"
-							   id="dg-col-{$control->getFullName()}-{$v_key}"
-							   data-col-key="{$v_key}"
-							   {if $visibility['visible']}checked{/if}>
-						<label class="form-check-label" for="dg-col-{$control->getFullName()}-{$v_key}">
-							{include #column-header, column => $visibility['column']}
-						</label>
-					</li>
-				</ul>
-			</div>
+				<div class="modal-body">
+					<div class="d-flex justify-content-between align-items-center mb-2">
+						<div class="btn-group">
+							<a class="btn btn-sm btn-outline-secondary ajax"
+									n:href="showAllColumns!">{='contributte_datagrid.show_all_columns'|translate}</a>
+							<a n:if="$control->hasSomeColumnDefaultHide()"
+									class="btn btn-sm btn-outline-secondary ajax"
+									n:href="showDefaultColumns!">{='contributte_datagrid.show_default_columns'|translate}</a>
+						</div>
 
-			<div class="modal-footer">
-				<button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">
-					{='contributte_datagrid.cancel'|translate}
-				</button>
+						<button type="button" class="btn btn-sm btn-outline-secondary" id="dg-columns-toggle-{$control->getFullName()}">
+							{='contributte_datagrid.toggle_selection'|translate}
+						</button>
+					</div>
 
-				{*
-				  Do šablony uložíme jen „základ“ pro oba signály bez parametru.
-				  Parametr column doplníme až v JS.
-				*}
-				<button type="button" class="btn btn-sm btn-primary"
-						id="dg-columns-apply-{$control->getFullName()}"
-						data-base-url="{$baseUrl}"
-						data-signal-show="{$control->getFullName()}-showColumn"
-						data-signal-hide="{$control->getFullName()}-hideColumn">
-					{='contributte_datagrid.apply'|translate}
-				</button>
-			</div>
+					<ul class="list-group" id="dg-columns-list-{$control->getFullName()}">
+						<li class="list-group-item d-flex align-items-center"
+								n:foreach="$columnsVisibility as $v_key => $visibility">
+							<input class="form-check-input me-2 dg-col-checkbox"
+								   type="checkbox"
+								   id="dg-col-{$control->getFullName()}-{$v_key}"
+								   name="columns[]"
+								   value="{$v_key}"
+								   {if $visibility['visible']}checked{/if}
+									{if isset($visibility['column']) && method_exists($visibility['column'],'isHideable') && !$visibility['column']->isHideable()}disabled aria-disabled="true"{/if}>
+							<label class="form-check-label" for="dg-col-{$control->getFullName()}-{$v_key}">
+								{include #column-header, column => $visibility['column']}
+							</label>
+						</li>
+					</ul>
+
+					{*! CSRF – použij token ze svého Nette Formu/ochrany *}
+					{input $filter['_token'] ?? null}
+					{ifset $csrfName}{$inputName = $csrfName}{/ifset}
+					{ifset $csrfValue}<input type="hidden" name="{$inputName}" value="{$csrfValue}">{/ifset}
+
+					<div class="invalid-feedback d-block mt-2" data-validation-for="columns" hidden></div>
+				</div>
+
+				<div class="modal-footer">
+					<button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">
+						{='contributte_datagrid.cancel'|translate}
+					</button>
+
+					<button type="submit"
+							class="btn btn-sm btn-primary"
+							id="dg-columns-apply-{$control->getFullName()}"
+							formaction="{plink saveColumnsVisibility!, gridId: $control->getFullName()}">
+						{='contributte_datagrid.apply'|translate}
+					</button>
+
+					<button type="submit"
+							class="btn btn-sm btn-outline-primary"
+							id="dg-columns-default-{$control->getFullName()}"
+							formaction="{plink saveColumnsAsDefault!, gridId: $control->getFullName()}">
+						{='contributte_datagrid.set_as_default'|translate}
+					</button>
+				</div>
+			</form>
 		</div>
 	</div>
 </div>
+
 
 
 {define inlineAddRow}
@@ -601,69 +617,77 @@
 {/define}
 
 <script n:syntax="double">
-	document.addEventListener('DOMContentLoaded', function () {
-		function runAjax(url, data = {}) {
-			return new Promise(function (resolve, reject) {
-				if (window.$ && $.nette) {
-					$.nette.ajax({ url: url, data: data, off: ['history'] }).done(resolve).fail(reject);
-				} else {
-					const u = new URL(url, window.location.href);
-					Object.entries(data).forEach(([k,v]) => u.searchParams.set(k, v));
-					window.location.href = u.toString();
-					resolve();
-				}
+	(function () {
+		const grid = "{{ $control->getFullName() }}";
+		const modalSel = "#datagridColumnsModal-" + grid;
+		const modalEl = document.querySelector(modalSel);
+		if (!modalEl || !window.naja) return;
+
+		const btnToggle = document.getElementById('dg-columns-toggle-' + grid);
+		btnToggle?.addEventListener('click', () => {
+			modalEl.querySelectorAll('.dg-col-checkbox:not([disabled])').forEach(ch => ch.checked = !ch.checked);
+		});
+
+		function setSubmitting(form, isSubmitting) {
+			form.querySelectorAll('button[type="submit"]').forEach(btn => {
+				btn.disabled = isSubmitting;
+				btn.dataset._txt ??= btn.innerHTML;
+				btn.innerHTML = isSubmitting
+						? '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>' + btn.dataset._txt
+						: btn.dataset._txt;
 			});
 		}
 
-		const gridName   = {{$control->getFullName()}};
-		const modalEl    = document.getElementById('dg-columns-modal-' + gridName);
-		if (!modalEl) return;
-
-		const list       = document.getElementById('dg-columns-list-' + gridName);
-		const btnApply   = document.getElementById('dg-columns-apply-' + gridName);
-		const btnToggle  = document.getElementById('dg-columns-toggle-' + gridName);
-
-		// uložit původní stav při otevření
-		modalEl.addEventListener('show.bs.modal', () => {
-			list.querySelectorAll('.dg-col-checkbox').forEach(ch => {
-				ch.setAttribute('data-orig', ch.checked ? '1' : '0');
-			});
-		});
-
-		// invert výběru
-		btnToggle?.addEventListener('click', () => {
-			list.querySelectorAll('.dg-col-checkbox').forEach(ch => ch.checked = !ch.checked);
-		});
-
-		// apply – pošli jen změny
-		btnApply?.addEventListener('click', async () => {
-			const base   = btnApply.dataset.baseUrl;          // např. ?presenter=Foo
-			const sigShow = btnApply.dataset.signalShow;      // <fullName>-showColumn
-			const sigHide = btnApply.dataset.signalHide;      // <fullName>-hideColumn
-
-			const ops = [];
-			list.querySelectorAll('.dg-col-checkbox').forEach(ch => {
-				const key  = ch.getAttribute('data-col-key');
-				const now  = ch.checked;
-				const orig = ch.getAttribute('data-orig') === '1';
-				if (now !== orig) ops.push({ key, show: now });
-			});
-
-			if (!ops.length) {
-				bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-				return;
+		function showFlashes(arr) {
+			if (!arr?.length) return;
+			const evt = new CustomEvent('app:flashes', { detail: arr });
+			document.dispatchEvent(evt);
+			if (!evt.defaultPrevented) {
+				arr.forEach(f => {
+					const prefix = f.type ? '[' + f.type + '] ' : '';
+					alert(prefix + (f.message || ''));
+				});
 			}
+		}
 
-			for (const op of ops) {
-				// sestavíme čistě bootstrap/JS cestou: base &do=signal &column=key
-				const url = new URL(base, window.location.href);
-				url.searchParams.set('do', op.show ? sigShow : sigHide);
-				url.searchParams.set('column', op.key);
-				await runAjax(url.toString());
-			}
-
-			bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+		naja.addEventListener('before', e => {
+			const form = e.detail.options?.form;
+			if (form && form.closest(modalSel)) setSubmitting(form, true);
 		});
-	});
+
+		naja.addEventListener('success', async e => {
+			const payload = e.detail.payload;
+			const options = e.detail.options;
+			const form = options?.form;
+			if (form && form.closest(modalSel)) setSubmitting(form, false);
+			if (!payload) return;
+
+			if (payload.status === 'ok') {
+				if (payload.closeModal) bootstrap.Modal.getOrCreateInstance(document.querySelector(payload.closeModal)).hide();
+				if (Array.isArray(payload.redraw) && payload.redraw.length) {
+					const redrawEndpoint = modalEl.getAttribute('data-redraw-endpoint') || window.location.href;
+					try { await naja.makeRequest('GET', redrawEndpoint, { data: { ids: payload.redraw } }); } catch {}
+				}
+				showFlashes(payload.flash);
+			} else if (payload.status === 'error') {
+				const msg = form?.querySelector('[data-validation-for="columns"]');
+				if (msg && payload.validation?.columns) { msg.hidden = false; msg.textContent = payload.validation.columns; }
+				showFlashes(payload.flash);
+			}
+		});
+
+		naja.addEventListener('error', e => {
+			const form = e.detail.options?.form;
+			if (form && form.closest(modalSel)) setSubmitting(form, false);
+			showFlashes([{"type":"danger","message":"Operaci se nepodařilo dokončit."}]);
+		});
+
+		naja.addEventListener('complete', e => {
+			const form = e.detail.options?.form;
+			if (form && form.closest(modalSel)) setSubmitting(form, false);
+		});
+	})();
 </script>
+
+
 
