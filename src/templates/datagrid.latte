@@ -462,7 +462,6 @@
 					</ul>
 
 					{*! CSRF – použij token ze svého Nette Formu/ochrany *}
-					{input $filter['_token'] ?? null}
 					{ifset $csrfName}{$inputName = $csrfName}{/ifset}
 					{ifset $csrfValue}<input type="hidden" name="{$inputName}" value="{$csrfValue}">{/ifset}
 
