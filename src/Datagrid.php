@@ -340,7 +340,6 @@ class Datagrid extends Control
 		$this->columnsVisibilityApplied = true;
 	}
 
-
 	/** Volitelný perzistor pro viditelnost sloupců (userContext+gridId) */
 	private ?ColumnsVisibilityPersistorInterface $columnsPersistor = null;
 
@@ -374,36 +373,35 @@ class Datagrid extends Control
 	public function handleSaveColumnsVisibility(): void
 	{
 		$presenter = $this->getPresenterInstance();
-		if (!$presenter->getHttpRequest()->isMethod('POST')) {
+		$http = $presenter->getHttpRequest();
+
+		if (!$http->isMethod('POST')) {
 			$presenter->error('Method Not Allowed', Nette\Http\IResponse::S405_METHOD_NOT_ALLOWED);
 		}
 
 		$meta = $this->collectColumnsMeta();
 		$allKeys = array_keys($meta);
 
-		$post = $presenter->getHttpRequest()->getPost();
-		$selected = $post['columns'] ?? [];
-		$selected = is_array($selected) ? array_map('strval', $selected) : [];
+		$posted = $http->getPost('columns') ?? [];
+		$selected = is_array($posted) ? array_map('strval', $posted) : [];
 
 		// validní klíče + respekt „locked“
 		$visible = array_values(array_intersect($allKeys, $selected));
 		foreach ($meta as $key => $m) {
-			if ($m['locked'] && !in_array($key, $visible, true)) {
+			if (!empty($m['locked']) && !in_array($key, $visible, true)) {
 				$visible[] = $key;
 			}
 		}
 
-		// volitelně log neznámých
-		// (pokud máš logger, můžeš zalogovat rozdíl mezi $selected a $allKeys)
-
-		// persist (pokud je nastaven perzistor)
-		if ($this->columnsPersistor !== null) {
-			$user = (string)($presenter->getUser()->getId() ?? 'guest');
-			$this->columnsPersistor->save($user, $this->getFullName(), $visible);
+		// neukládej uvnitř knihovny – předej to aplikaci
+		foreach ($this->onSaveColumnsVisibility as $cb) {
+			$cb($this, $this->getFullName(), $visible);
 		}
 
-		// aplikuj do gridu + základní redraw
+		// aplikuj do gridu
 		$this->applyVisibilityFromList($visible);
+
+		// překresli, co potřebuješ (přizpůsob svým snippetům)
 		$this->redrawControl('grid');
 		$this->redrawControl('table');
 		$this->redrawControl('tbody');
@@ -411,14 +409,11 @@ class Datagrid extends Control
 		$this->redrawControl('toolbar');
 		$this->redrawControl('exports');
 
-		$payload = [
-			'status'     => 'ok',
-			'closeModal' => '#datagridColumnsModal-' . $this->getFullName(),
-			'redraw'     => ['grid'], // FE může volat následný redrawSnippets!
-			'flash'      => [['type' => 'success', 'message' => 'Zobrazení sloupců bylo uloženo.']],
-		];
-		$presenter->sendResponse(new JsonResponse($payload));
+		// volitelně Nette flash + jeho snippet (ať se propsáhne do response)
+		$presenter->flashMessage('Zobrazení sloupců bylo uloženo.', 'success');
+		$presenter->redrawControl('flashes'); // pokud máš snippet pro flash messages
 	}
+
 
 	public function handleSaveColumnsAsDefault(): void
 	{
